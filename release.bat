@@ -6,30 +6,31 @@ echo  ========================================
 echo    Kredo File Manager — New Release
 echo  ========================================
 echo.
-echo  This will: build, sign, and prepare
-echo  files for a GitHub Release.
+echo  This will tag and push to GitHub.
+echo  GitHub Actions will automatically:
+echo    - Build the x64 .exe
+echo    - Sign the update bundle
+echo    - Create the GitHub Release
+echo    - Generate latest.json
+echo.
+echo  Current version in tauri.conf.json:
+findstr /C:"version" src-tauri\tauri.conf.json | findstr /V schema
 echo.
 
-REM Load signing keys
-if exist .env.signing (
-    call .env.signing
-    echo  Signing keys loaded.
-) else (
-    echo  ERROR: .env.signing not found.
-    echo  Create it with your signing key path and password.
+set /p VER="  Enter new version (e.g. 1.0.1): "
+
+if "%VER%"=="" (
+    echo  No version entered. Cancelled.
     pause
     exit /b 1
 )
 
 echo.
-echo  Current version in tauri.conf.json:
-findstr /C:"version" src-tauri\tauri.conf.json | findstr /V schema
-echo.
-echo  Make sure you bumped the version in:
+echo  Make sure you already updated the version to %VER% in:
 echo    - src-tauri\tauri.conf.json
 echo    - package.json
 echo.
-set /p CONFIRM="  Continue with build? (y/n): "
+set /p CONFIRM="  Continue? (y/n): "
 if /i not "%CONFIRM%"=="y" (
     echo  Cancelled.
     pause
@@ -37,38 +38,26 @@ if /i not "%CONFIRM%"=="y" (
 )
 
 echo.
-echo  Building...
-echo.
-call npx tauri build
+echo  Committing changes...
+git add .
+git commit -m "v%VER%"
 
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo  Build failed.
-    pause
-    exit /b 1
-)
+echo  Creating tag v%VER%...
+git tag v%VER%
+
+echo  Pushing code + tag to GitHub...
+git push
+git push --tags
 
 echo.
 echo  ========================================
-echo    Build complete!
-echo  ========================================
+echo    Done! GitHub Actions is now building.
 echo.
-echo  Next steps:
+echo    Track progress at:
+echo    https://github.com/kredo-team/kredo-file-manager/actions
 echo.
-echo  1. Go to: src-tauri\target\release\bundle\nsis\
-echo.
-echo  2. You need these files:
-echo     - Kredo File Manager_x.x.x_x64-setup.exe
-echo     - Kredo File Manager_x.x.x_x64-setup.nsis.zip
-echo     - Kredo File Manager_x.x.x_x64-setup.nsis.zip.sig
-echo.
-echo  3. Create latest.json (see AUTO_UPDATE_SETUP.md)
-echo.
-echo  4. Create GitHub Release:
-echo     https://github.com/kredo-team/kredo-file-manager/releases/new
-echo     - Tag: vX.X.X
-echo     - Attach: .exe + .nsis.zip + latest.json
-echo.
+echo    Release will appear at:
+echo    https://github.com/kredo-team/kredo-file-manager/releases
 echo  ========================================
 echo.
 pause
