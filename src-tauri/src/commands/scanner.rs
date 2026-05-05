@@ -66,7 +66,6 @@ pub fn scan_directory(
     financial_year: String,
 ) -> Result<ScanResult, String> {
     let scan_path = PathBuf::from(&root_path)
-        .join("data")
         .join(&entity_name)
         .join(&financial_year);
 
@@ -212,9 +211,10 @@ pub fn scan_directory(
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuditRow {
     pub client: String,
-    pub month: String,         // "01 Apr 2026" or "—" for FY-level
-    pub statement_path: String, // "Bank Statement → SBI" or "—" or "Unsorted"
-    pub status: String,         // "ok" or "empty"
+    pub fy: String,              // "FY 2026-27"
+    pub month: String,           // "01 Apr 2026" or "—" for FY-level
+    pub statement_path: String,  // "Bank Statement → SBI" or "—" or "Unsorted"
+    pub status: String,          // "ok" or "empty"
     pub count: usize,
 }
 
@@ -258,6 +258,7 @@ fn is_month_folder(name: &str) -> bool {
 fn audit_statement_tree(
     dir: &std::path::Path,
     client: &str,
+    fy: &str,
     month: &str,
     path_prefix: &[String],
     rows: &mut Vec<AuditRow>,
@@ -281,19 +282,20 @@ fn audit_statement_tree(
         }
     }
 
-    // Leaf folder — report it
     if sub_dirs.is_empty() && !path_prefix.is_empty() {
         rows.push(AuditRow {
             client: client.to_string(),
+            fy: fy.to_string(),
             month: month.to_string(),
             statement_path: path_prefix.join(" \u{2192} "),
             status: if file_count > 0 { "ok".to_string() } else { "empty".to_string() },
             count: file_count,
         });
+        return;
     } else if !path_prefix.is_empty() && file_count > 0 {
-        // Non-leaf but has direct files — report those too
         rows.push(AuditRow {
             client: client.to_string(),
+            fy: fy.to_string(),
             month: month.to_string(),
             statement_path: path_prefix.join(" \u{2192} "),
             status: "ok".to_string(),
@@ -305,7 +307,7 @@ fn audit_statement_tree(
     for (name, path) in &sub_dirs {
         let mut child_prefix = path_prefix.to_vec();
         child_prefix.push(name.clone());
-        audit_statement_tree(&path, client, month, &child_prefix, rows);
+        audit_statement_tree(&path, client, fy, month, &child_prefix, rows);
     }
 }
 
@@ -313,6 +315,7 @@ fn audit_statement_tree(
 fn audit_month(
     month_path: &std::path::Path,
     client: &str,
+    fy: &str,
     month_name: &str,
     rows: &mut Vec<AuditRow>,
 ) {
@@ -335,15 +338,8 @@ fn audit_month(
         }
     }
 
-    // Completely empty month → report so it counts in denominator
+    // Completely empty month — skip entirely
     if sub_dirs.is_empty() && loose_files == 0 {
-        rows.push(AuditRow {
-            client: client.to_string(),
-            month: month_name.to_string(),
-            statement_path: "\u{2014}".to_string(),
-            status: "empty".to_string(),
-            count: 0,
-        });
         return;
     }
 
@@ -351,6 +347,7 @@ fn audit_month(
     if loose_files > 0 {
         rows.push(AuditRow {
             client: client.to_string(),
+            fy: fy.to_string(),
             month: month_name.to_string(),
             statement_path: "Unsorted".to_string(),
             status: "ok".to_string(),
@@ -361,7 +358,7 @@ fn audit_month(
     // Walk statement type sub-directories
     sub_dirs.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, path) in &sub_dirs {
-        audit_statement_tree(&path, client, month_name, &[name.clone()], rows);
+        audit_statement_tree(&path, client, fy, month_name, &[name.clone()], rows);
     }
 }
 
@@ -369,14 +366,15 @@ fn audit_month(
 pub fn scan_audit(
     root_path: String,
     entity_names: Vec<String>,
-    financial_year: String,
+    financial_years: Vec<String>,
 ) -> Result<AuditResult, String> {
-    let data = PathBuf::from(&root_path).join("data");
+    let root = PathBuf::from(&root_path);
     let mut rows: Vec<AuditRow> = Vec::new();
     let dash = "\u{2014}".to_string(); // em-dash
 
     for client in &entity_names {
-        let fy_path = data.join(client).join(&financial_year);
+      for financial_year in &financial_years {
+        let fy_path = root.join(client).join(financial_year);
         if !fy_path.exists() { continue; }
 
         let entries = std::fs::read_dir(&fy_path)
@@ -406,6 +404,7 @@ pub fn scan_audit(
         if fy_loose_files > 0 {
             rows.push(AuditRow {
                 client: client.to_string(),
+                fy: financial_year.to_string(),
                 month: dash.clone(),
                 statement_path: dash.clone(),
                 status: "ok".to_string(),
@@ -416,15 +415,16 @@ pub fn scan_audit(
         // 2. Non-month directories (Notes, Archives, etc.) → month="—", type=folder name
         non_month_dirs.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, path) in &non_month_dirs {
-            audit_statement_tree(&path, client, &dash, &[name.clone()], &mut rows);
+            audit_statement_tree(&path, client, financial_year, &dash, &[name.clone()], &mut rows);
         }
 
         // 3. Month directories — normal flow
         month_dirs.sort_by(|a, b| a.0.cmp(&b.0));
         for (month_name, month_path) in &month_dirs {
-            audit_month(&month_path, client, month_name, &mut rows);
+            audit_month(&month_path, client, financial_year, month_name, &mut rows);
         }
-    }
+      } // end financial_years loop
+    } // end entity_names loop
 
     // Smart completion: if a client has month-based rows, exclude FY-level ("—") rows
     // from the completion calculation so loose files don't inflate the percentage
@@ -454,4 +454,98 @@ pub fn scan_audit(
         empty,
         completion: (completion * 10.0).round() / 10.0,
     })
+}
+
+/// List all unique statement type folder names across selected clients and FYs
+#[tauri::command]
+pub fn list_statement_types(
+    root_path: String,
+    entity_names: Vec<String>,
+    financial_years: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let root = PathBuf::from(&root_path);
+    let mut types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    for client in &entity_names {
+        for fy in &financial_years {
+            let fy_path = root.join(client).join(fy);
+            if !fy_path.exists() { continue; }
+
+            let entries = match std::fs::read_dir(&fy_path) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !path.is_dir() || name.starts_with('.') || name.starts_with('_') { continue; }
+
+                if is_month_folder(&name) {
+                    // Look inside month folder for statement type subfolders
+                    if let Ok(month_entries) = std::fs::read_dir(&path) {
+                        for me in month_entries.flatten() {
+                            let mp = me.path();
+                            let mn = me.file_name().to_string_lossy().to_string();
+                            if mp.is_dir() && !mn.starts_with('.') && !mn.starts_with('_') {
+                                types.insert(mn);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(types.into_iter().collect())
+}
+
+/// Generate Excel from scan audit rows and return the file path
+#[tauri::command]
+pub fn generate_scan_excel(
+    rows: Vec<AuditRow>,
+) -> Result<String, String> {
+    use rust_xlsxwriter::{Workbook, Format, Color};
+
+    let mut workbook = Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.set_name("Scan Report").map_err(|e| e.to_string())?;
+
+    let header_fmt = Format::new().set_bold().set_font_size(11.0)
+        .set_font_color(Color::White).set_background_color(Color::RGB(0x615FFF));
+    let ok_fmt = Format::new().set_font_color(Color::RGB(0x1D9E75));
+    let empty_fmt = Format::new().set_font_color(Color::RGB(0xE25C5C));
+
+    let headers = ["Client", "FY", "Month", "Statement Type", "File Count"];
+    let widths: [f64; 5] = [18.0, 14.0, 14.0, 25.0, 12.0];
+    for (col, (h, w)) in headers.iter().zip(widths.iter()).enumerate() {
+        sheet.set_column_width(col as u16, *w).map_err(|e| e.to_string())?;
+        sheet.write_string_with_format(0, col as u16, *h, &header_fmt).map_err(|e| e.to_string())?;
+    }
+
+    // Sort rows: client → fy → month → statement_path
+    let mut sorted = rows.clone();
+    sorted.sort_by(|a, b| {
+        a.client.cmp(&b.client)
+            .then(a.fy.cmp(&b.fy))
+            .then(a.month.cmp(&b.month))
+            .then(a.statement_path.cmp(&b.statement_path))
+    });
+
+    for (i, row) in sorted.iter().enumerate() {
+        let r = (i + 1) as u32;
+        sheet.write_string(r, 0, &row.client).map_err(|e| e.to_string())?;
+        sheet.write_string(r, 1, &row.fy).map_err(|e| e.to_string())?;
+        sheet.write_string(r, 2, &row.month).map_err(|e| e.to_string())?;
+        sheet.write_string(r, 3, &row.statement_path).map_err(|e| e.to_string())?;
+        let fmt = if row.count > 0 { &ok_fmt } else { &empty_fmt };
+        sheet.write_number_with_format(r, 4, row.count as f64, fmt).map_err(|e| e.to_string())?;
+    }
+
+    let temp_dir = std::env::temp_dir();
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = format!("Kredo_Report_{}.xlsx", timestamp);
+    let filepath = temp_dir.join(&filename);
+    workbook.save(filepath.to_str().unwrap_or("report.xlsx")).map_err(|e| e.to_string())?;
+    Ok(filepath.to_string_lossy().to_string())
 }

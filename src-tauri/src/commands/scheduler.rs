@@ -52,8 +52,8 @@ fn generate_summary_excel(rows: &[TaggedRow], temp_dir: &PathBuf) -> Result<Stri
     let ok_fmt = Format::new().set_font_color(Color::RGB(0x1D9E75));
     let empty_fmt = Format::new().set_font_color(Color::RGB(0xE25C5C));
 
-    let headers = ["Client", "FY", "Month", "Statement Type", "Status", "Count"];
-    let widths = [18, 14, 14, 25, 10, 10];
+    let headers = ["Client", "FY", "Month", "Statement Type", "File Count"];
+    let widths = [18, 14, 14, 25, 12];
     for (col, (h, w)) in headers.iter().zip(widths.iter()).enumerate() {
         sheet.set_column_width(col as u16, *w).map_err(|e| e.to_string())?;
         sheet.write_string_with_format(0, col as u16, *h, &header_fmt).map_err(|e| e.to_string())?;
@@ -65,9 +65,8 @@ fn generate_summary_excel(rows: &[TaggedRow], temp_dir: &PathBuf) -> Result<Stri
         sheet.write_string(r, 1, &row.fy).map_err(|e| e.to_string())?;
         sheet.write_string(r, 2, &row.month).map_err(|e| e.to_string())?;
         sheet.write_string(r, 3, &row.statement_path).map_err(|e| e.to_string())?;
-        let fmt = if row.status == "ok" { &ok_fmt } else { &empty_fmt };
-        sheet.write_string_with_format(r, 4, &row.status, fmt).map_err(|e| e.to_string())?;
-        sheet.write_number(r, 5, row.count as f64).map_err(|e| e.to_string())?;
+        let fmt = if row.count > 0 { &ok_fmt } else { &empty_fmt };
+        sheet.write_number_with_format(r, 4, row.count as f64, fmt).map_err(|e| e.to_string())?;
     }
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -109,41 +108,39 @@ fn generate_summary_html(rows: &[TaggedRow], total: usize, filled: usize, empty:
 
     for entry in chip_map.values() {
         if !prev_client.is_empty() && prev_client != entry.client {
-            data_html.push_str("<tr><td colspan=\"5\" style=\"padding:0;border-bottom:none;height:8px;\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"border-bottom:2px solid #EEEDFA;font-size:0;line-height:0;\">&nbsp;</td></tr></table></td></tr>");
+            data_html.push_str("<tr><td colspan=\"4\" style=\"padding:0;border-bottom:none;height:8px;\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"border-bottom:2px solid #EEEDFA;font-size:0;line-height:0;\">&nbsp;</td></tr></table></td></tr>");
         }
         prev_client = entry.client.clone();
 
-        // Strip "FY " prefix for display
         let fy_short = entry.fy.trim_start_matches("FY ").trim_start_matches("fy ");
 
         let chips_html = if entry.is_fy {
-            format!("<span style=\"display:inline-block;padding:3px 8px;border-radius:3px;font-size:8px;font-weight:600;background:{};color:{};\">FY</span>",
+            format!("<span style=\"display:inline-block;padding:3px 8px;border-radius:3px;font-size:8px;font-weight:600;background:{};color:{};\">FY {}</span>",
                 if entry.total > 0 { "rgba(29,158,117,0.1)" } else { "rgba(226,92,92,0.08)" },
-                if entry.total > 0 { "#1D9E75" } else { "#E25C5C" })
+                if entry.total > 0 { "#1D9E75" } else { "#E25C5C" },
+                entry.total)
         } else {
             let fy_full = if entry.fy.starts_with("FY ") { entry.fy.clone() } else { format!("FY {}", entry.fy) };
             let month_keys = fy_month_keys_rust(&fy_full);
             let row1: String = month_keys.iter().take(6).enumerate().map(|(i, mk)| {
                 let count = entry.months.get(mk).copied().unwrap_or(0);
-                format!("<td style=\"{}\"><span style=\"{}\">{}</span></td>", cell_s, cs(count > 0), month_labels[i])
+                format!("<td style=\"{}\"><span style=\"{}\">{} {}</span></td>", cell_s, cs(count > 0), month_labels[i], count)
             }).collect();
             let row2: String = month_keys.iter().skip(6).enumerate().map(|(i, mk)| {
                 let count = entry.months.get(mk).copied().unwrap_or(0);
-                format!("<td style=\"{}\"><span style=\"{}\">{}</span></td>", cell_s, cs(count > 0), month_labels[i + 6])
+                format!("<td style=\"{}\"><span style=\"{}\">{} {}</span></td>", cell_s, cs(count > 0), month_labels[i + 6], count)
             }).collect();
             format!("<table cellpadding=\"0\" cellspacing=\"1\" width=\"100%\"><tr>{}</tr><tr>{}</tr></table>", row1, row2)
         };
 
         let type_name = if entry.stype == dash { format!("{} (FY level)", dash) } else { entry.stype.clone() };
-        let count_color = if entry.total > 0 { "#131126" } else { "#E25C5C" };
 
         data_html.push_str(&format!("<tr style=\"height:48px;\">
             <td style=\"padding:0 6px;font-size:11px;color:#615FFF;font-weight:600;{}white-space:nowrap;\">{}</td>
             <td style=\"padding:0 6px;font-size:11px;color:#5E5C7A;{}white-space:nowrap;\">{}</td>
             <td style=\"padding:0 6px;font-size:11px;color:#131126;font-weight:500;{}\">{}</td>
             <td style=\"padding:4px 2px;{}\">{}</td>
-            <td style=\"padding:0 6px;text-align:right;font-size:11px;font-weight:600;color:{};{}white-space:nowrap;\">{}</td>
-        </tr>", td_s, entry.client, td_s, fy_short, td_s, type_name, td_s, chips_html, count_color, td_s, entry.total));
+        </tr>", td_s, entry.client, td_s, fy_short, td_s, type_name, td_s, chips_html));
     }
 
     let th_s = "padding:0 6px;text-align:left;font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#908EAF;border-bottom:1.5px solid #F0EFF5;vertical-align:middle;";
@@ -171,12 +168,11 @@ fn generate_summary_html(rows: &[TaggedRow], total: usize, filled: usize, empty:
 <th style=\"{}\">FY</th>
 <th style=\"{}\">Type</th>
 <th style=\"{}padding:0 2px;\">Months</th>
-<th style=\"{}text-align:right;\">Count</th>
 </tr>
 {}
 </table></td></tr>
-<tr><td style=\"padding:12px 16px;border-top:1px solid #F0EFF5;text-align:center;font-size:10px;color:#C4C3D4;\">Automated report by Kredo File Manager</td></tr>
-</table></td></tr></table></body></html>", total, filled, empty, completion, th_s, th_s, th_s, th_s, th_s, data_html)
+<tr><td style=\"padding:12px 16px;border-top:1px solid #F0EFF5;text-align:center;\"><div style=\"font-size:10px;color:#908EAF;\">Detailed monthly audit attached as Excel</div><div style=\"font-size:9px;color:#C4C3D4;margin-top:4px;\">Automated report by Kredo File Manager</div></td></tr>
+</table></td></tr></table></body></html>", total, filled, empty, completion, th_s, th_s, th_s, th_s, data_html)
 }
 
 /// Generate month keys for an FY (Rust version)
@@ -212,13 +208,13 @@ pub fn send_auto_email(
     if smtp_config.host.is_empty() { return Err("SMTP not configured".to_string()); }
     if root_path.is_empty() { return Err("Root path not configured".to_string()); }
 
-    let data_dir = PathBuf::from(&root_path).join("data");
-    if !data_dir.exists() { return Err("Data directory not found".to_string()); }
+    let root = PathBuf::from(&root_path);
+    if !root.exists() { return Err("Root directory not found".to_string()); }
 
     let mut tagged_rows: Vec<TaggedRow> = Vec::new();
     let mut entities: Vec<String> = Vec::new();
 
-    let dir_entries = fs::read_dir(&data_dir).map_err(|e| format!("Cannot read data dir: {}", e))?;
+    let dir_entries = fs::read_dir(&root).map_err(|e| format!("Cannot read root dir: {}", e))?;
     for entry in dir_entries.flatten() {
         if entry.path().is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -230,7 +226,7 @@ pub fn send_auto_email(
     entities.sort();
 
     for entity in &entities {
-        let entity_dir = data_dir.join(entity);
+        let entity_dir = root.join(entity);
         if let Ok(fys) = fs::read_dir(&entity_dir) {
             let mut fy_names: Vec<String> = fys.flatten()
                 .filter(|e| e.path().is_dir() && e.file_name().to_string_lossy().starts_with("FY"))
@@ -239,11 +235,11 @@ pub fn send_auto_email(
             fy_names.sort();
 
             for fy_name in &fy_names {
-                match scan_audit(root_path.clone(), vec![entity.clone()], fy_name.clone()) {
+                match scan_audit(root_path.clone(), vec![entity.clone()], vec![fy_name.clone()]) {
                     Ok(result) => {
                         for r in result.rows {
                             tagged_rows.push(TaggedRow {
-                                client: r.client, fy: fy_name.clone(),
+                                client: r.client, fy: r.fy,
                                 month: r.month, statement_path: r.statement_path,
                                 status: r.status, count: r.count,
                             });

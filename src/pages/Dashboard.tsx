@@ -98,13 +98,8 @@ export default function Dashboard() {
         </div>
         <div className="quick-card" onClick={() => navigate('/scan')}>
           <div className="quick-card-icon"><IconEye /></div>
-          <div className="quick-card-title">Scan & Preview</div>
-          <div className="quick-card-desc">View all files under a client's financial year</div>
-        </div>
-        <div className="quick-card" onClick={() => navigate('/export')}>
-          <div className="quick-card-icon"><IconPaperPlane /></div>
-          <div className="quick-card-title">Export & Email</div>
-          <div className="quick-card-desc">Generate summary reports and send to recipients</div>
+          <div className="quick-card-title">Scan & Export</div>
+          <div className="quick-card-desc">Audit files and send reports</div>
         </div>
         <div className="quick-card" onClick={() => navigate('/settings')}>
           <div className="quick-card-icon"><IconGear /></div>

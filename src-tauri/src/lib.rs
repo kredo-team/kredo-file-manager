@@ -30,6 +30,8 @@ pub fn run() {
             // Scanner
             scanner::scan_directory,
             scanner::scan_audit,
+            scanner::list_statement_types,
+            scanner::generate_scan_excel,
             // Email
             email::send_email,
             // Scheduler

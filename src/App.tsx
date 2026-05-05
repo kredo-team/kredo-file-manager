@@ -5,8 +5,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import FolderSetup from './pages/FolderSetup';
-import ScanPreview from './pages/ScanPreview';
-import ExportEmail from './pages/ExportEmail';
+import ScanExport from './pages/ScanExport';
 import ExportZip from './pages/ExportZip';
 import Upload from './pages/Upload';
 import Settings from './pages/Settings';
@@ -50,8 +49,7 @@ function AppContent() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/folders" element={<FolderSetup />} />
           <Route path="/upload" element={<Upload />} />
-          <Route path="/scan" element={<ScanPreview />} />
-          <Route path="/export" element={<ExportEmail />} />
+          <Route path="/scan" element={<ScanExport />} />
           <Route path="/export-zip" element={<ExportZip />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

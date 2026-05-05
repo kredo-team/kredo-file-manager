@@ -37,7 +37,23 @@ export default function Settings() {
   // ── About & Updates state ──
   const updater = useUpdater();
   const [appVersion, setAppVersion] = useState('');
+  const [changelog, setChangelog] = useState<{ version: string; date: string; notes: string }[]>([]);
+  const [selectedRelease, setSelectedRelease] = useState<{ version: string; date: string; notes: string } | null>(null);
   useEffect(() => { getVersion().then(setAppVersion).catch(() => setAppVersion('—')); }, []);
+  useEffect(() => {
+    if (activeTab !== 'about') return;
+    fetch('https://api.github.com/repos/kredo-team/kredo-file-manager/releases?per_page=5')
+      .then((r) => r.json())
+      .then((releases: any[]) => {
+        if (Array.isArray(releases)) {
+          setChangelog(releases.map((r) => ({
+            version: r.tag_name || r.name || '',
+            date: r.published_at ? new Date(r.published_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+            notes: r.body || 'No release notes.',
+          })));
+        }
+      }).catch(() => {});
+  }, [activeTab]);
   // ── Email Setup state ──
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('587');
@@ -65,6 +81,7 @@ export default function Settings() {
   const [aeToInput, setAeToInput] = useState('');
   const [aeCcInput, setAeCcInput] = useState('');
   const [aeSending, setAeSending] = useState(false);
+  const [aeSendMode, setAeSendMode] = useState<'all' | 'configured'>('all');
 
   // ── Load settings into local state ──
   useEffect(() => {
@@ -105,7 +122,6 @@ export default function Settings() {
   const handleSaveWorkspace = async () => {
     if (!settings) return;
     await saveSettings({ ...settings, root_path: rootPath });
-    addToast('success', 'Workspace saved');
   };
 
   // ── Email Setup handlers ──
@@ -160,9 +176,24 @@ export default function Settings() {
   };
   const handleSendNow = async () => {
     if (!settings) return;
-    if (aeTo.length === 0) { addToast('error', 'Add at least one recipient'); return; }
     if (!settings.smtp?.host) { addToast('error', 'Configure SMTP first (Email Setup tab)'); return; }
     if (!settings.root_path) { addToast('error', 'Set root folder first (Workspace tab)'); return; }
+
+    // Determine recipients based on send mode
+    let sendTo: string[] = [];
+    let sendCc: string[] = [];
+    if (aeSendMode === 'configured') {
+      const mappings = settings.email_mappings || [];
+      for (const m of mappings) { sendTo.push(...m.to); sendCc.push(...m.cc); }
+      sendTo = [...new Set(sendTo)];
+      sendCc = [...new Set(sendCc)];
+      if (sendTo.length === 0) { addToast('error', 'No configured recipients. Set email mappings below.'); return; }
+    } else {
+      sendTo = aeTo;
+      sendCc = aeCc;
+      if (sendTo.length === 0) { addToast('error', 'Add at least one recipient'); return; }
+    }
+
     setAeSending(true);
     try {
       const smtp: SmtpConfig = {
@@ -172,7 +203,7 @@ export default function Settings() {
       };
       const result = await invoke<{ success: boolean; message: string; timestamp: string }>('send_auto_email', {
         rootPath: settings.root_path, smtpConfig: smtp,
-        to: aeTo, cc: aeCc, subject: aeSubject || 'Kredo — Automated Status Report',
+        to: sendTo, cc: sendCc, subject: aeSubject || 'Kredo — Automated Status Report',
       });
       await saveSettings({
         ...settings,
@@ -258,7 +289,7 @@ export default function Settings() {
       {activeTab === 'email' && (
         <>
           {/* SMTP */}
-          <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card">
             <div className="card-header">
               <span className="card-title">SMTP Configuration</span>
               <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Mail server for sending emails</span>
@@ -281,40 +312,13 @@ export default function Settings() {
               </div>
             </div>
           </div>
-
-          {/* Email Mappings */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">Email Mappings</span>
-              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Per-client recipients for manual sends</span>
-            </div>
-            <div className="table-wrapper" style={{ padding: '0 0 16px' }}>
-              {entities.length === 0 ? (
-                <div className="empty-state"><div className="empty-state-title">No clients found</div><div className="empty-state-desc">Create folders first, then clients appear here</div></div>
-              ) : (
-                <table><thead><tr>
-                  <th style={{ width: '35%' }}>Client</th><th style={{ width: '35%' }}>Recipients</th><th style={{ width: '30%', textAlign: 'center' }}>Action</th>
-                </tr></thead><tbody>
-                  {entities.map((e) => {
-                    const m = (settings?.email_mappings || []).find((x) => x.entity_name.toLowerCase() === e.toLowerCase());
-                    return (
-                      <tr key={e}>
-                        <td className="primary-cell" style={{ fontWeight: 600 }}>{e}</td>
-                        <td>{m && m.to.length > 0 ? <span className="chip">{m.to.length} recipient{m.to.length > 1 ? 's' : ''}</span> : <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Not set</span>}</td>
-                        <td style={{ textAlign: 'center' }}><button className="btn btn-secondary btn-sm" onClick={() => openMappingEditor(e)}>Configure</button></td>
-                      </tr>
-                    );
-                  })}
-                </tbody></table>
-              )}
-            </div>
-          </div>
         </>
       )}
 
-      {/* ═══ Tab: Scheduler ═══ */}
+      {/* ═══ Tab: Scheduler & Mappings ═══ */}
       {activeTab === 'scheduler' && (
-        <div className="card">
+        <>
+        <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="card-title">Scheduled Email Reports</span>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -326,66 +330,90 @@ export default function Settings() {
             </label>
           </div>
 
-          <div style={{ padding: '16px 20px', display: 'grid', gap: 16, opacity: aeEnabled ? 1 : 0.5, pointerEvents: aeEnabled ? 'auto' : 'none' }}>
-            {/* Schedule */}
-            <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
-              <div className="input-group" style={{ minWidth: 180 }}>
-                <label className="input-label">Schedule</label>
-                <select className="select-field" value={aeSchedule} onChange={(e) => setAeSchedule(e.target.value)}>
-                  {SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
+          <div style={{ padding: '16px 20px', display: 'grid', gap: 16 }}>
+            {/* Schedule config — dims when disabled */}
+            <div style={{ display: 'grid', gap: 16, opacity: aeEnabled ? 1 : 0.5, pointerEvents: aeEnabled ? 'auto' : 'none' }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
+                <div className="input-group" style={{ minWidth: 180 }}>
+                  <label className="input-label">Schedule</label>
+                  <select className="select-field" value={aeSchedule} onChange={(e) => setAeSchedule(e.target.value)}>
+                    {SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                {aeSchedule !== 'every_minute' && (
+                  <div className="input-group" style={{ width: 120 }}>
+                    <label className="input-label">Time</label>
+                    <input className="input-field" type="time" value={aeTime} onChange={(e) => setAeTime(e.target.value)} />
+                  </div>
+                )}
+                {aeSchedule === 'weekly' && (
+                  <div className="input-group" style={{ minWidth: 140 }}>
+                    <label className="input-label">Day</label>
+                    <select className="select-field" value={aeDow} onChange={(e) => setAeDow(Number(e.target.value))}>
+                      {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
+                {aeSchedule === 'monthly' && (
+                  <div className="input-group" style={{ width: 100 }}>
+                    <label className="input-label">Day of month</label>
+                    <select className="select-field" value={aeDom} onChange={(e) => setAeDom(Number(e.target.value))}>
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
-              {aeSchedule !== 'every_minute' && (
-                <div className="input-group" style={{ width: 120 }}>
-                  <label className="input-label">Time</label>
-                  <input className="input-field" type="time" value={aeTime} onChange={(e) => setAeTime(e.target.value)} />
-                </div>
-              )}
-              {aeSchedule === 'weekly' && (
-                <div className="input-group" style={{ minWidth: 140 }}>
-                  <label className="input-label">Day</label>
-                  <select className="select-field" value={aeDow} onChange={(e) => setAeDow(Number(e.target.value))}>
-                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                  </select>
-                </div>
-              )}
-              {aeSchedule === 'monthly' && (
-                <div className="input-group" style={{ width: 100 }}>
-                  <label className="input-label">Day of month</label>
-                  <select className="select-field" value={aeDom} onChange={(e) => setAeDom(Number(e.target.value))}>
-                    {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-              )}
             </div>
 
-            {/* Subject */}
+            {/* Subject — always accessible */}
             <div className="input-group">
               <label className="input-label">Subject</label>
               <input className="input-field" value={aeSubject} onChange={(e) => setAeSubject(e.target.value)} placeholder="Kredo — Automated Status Report" />
             </div>
 
-            {/* TO */}
-            <div className="input-group">
-              <label className="input-label">TO</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input-field" style={{ flex: 1 }} value={aeToInput} onChange={(e) => setAeToInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aeAddTo()} placeholder="email@example.com" />
-                <button className="btn btn-primary" onClick={aeAddTo}>Add</button>
+            {/* Send mode toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>Send to:</span>
+              <div style={{ display: 'flex', borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--input-border)' }}>
+                <button type="button" onClick={() => setAeSendMode('all')}
+                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer', background: aeSendMode === 'all' ? 'var(--brand)' : 'var(--input-bg)', color: aeSendMode === 'all' ? 'white' : 'var(--ink-3)', transition: 'all 0.15s' }}>
+                  All (Global TO/CC)
+                </button>
+                <button type="button" onClick={() => setAeSendMode('configured')}
+                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', borderLeft: '1px solid var(--input-border)', cursor: 'pointer', background: aeSendMode === 'configured' ? 'var(--brand)' : 'var(--input-bg)', color: aeSendMode === 'configured' ? 'white' : 'var(--ink-3)', transition: 'all 0.15s' }}>
+                  Configured recipients
+                </button>
               </div>
-              {aeTo.length > 0 && <div className="tag-list">{aeTo.map((em) => <span className="tag" key={em}>{em}<button className="tag-remove" onClick={() => setAeTo(aeTo.filter((x) => x !== em))}><IconXmark /></button></span>)}</div>}
             </div>
 
-            {/* CC */}
-            <div className="input-group">
-              <label className="input-label">CC</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input-field" style={{ flex: 1 }} value={aeCcInput} onChange={(e) => setAeCcInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aeAddCc()} placeholder="cc@example.com" />
-                <button className="btn btn-secondary" onClick={aeAddCc}>Add</button>
+            {/* TO/CC — only when "All" mode */}
+            {aeSendMode === 'all' && (<>
+              <div className="input-group">
+                <label className="input-label">TO</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="input-field" style={{ flex: 1 }} value={aeToInput} onChange={(e) => setAeToInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aeAddTo()} placeholder="email@example.com" />
+                  <button className="btn btn-primary" onClick={aeAddTo}>Add</button>
+                </div>
+                {aeTo.length > 0 && <div className="tag-list">{aeTo.map((em) => <span className="tag" key={em}>{em}<button className="tag-remove" onClick={() => setAeTo(aeTo.filter((x) => x !== em))}><IconXmark /></button></span>)}</div>}
               </div>
-              {aeCc.length > 0 && <div className="tag-list">{aeCc.map((em) => <span className="tag" key={em}>{em}<button className="tag-remove" onClick={() => setAeCc(aeCc.filter((x) => x !== em))}><IconXmark /></button></span>)}</div>}
-            </div>
+              <div className="input-group">
+                <label className="input-label">CC</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="input-field" style={{ flex: 1 }} value={aeCcInput} onChange={(e) => setAeCcInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aeAddCc()} placeholder="cc@example.com" />
+                  <button className="btn btn-secondary" onClick={aeAddCc}>Add</button>
+                </div>
+                {aeCc.length > 0 && <div className="tag-list">{aeCc.map((em) => <span className="tag" key={em}>{em}<button className="tag-remove" onClick={() => setAeCc(aeCc.filter((x) => x !== em))}><IconXmark /></button></span>)}</div>}
+              </div>
+            </>)}
 
-            {/* Status */}
+            {/* Info when configured mode */}
+            {aeSendMode === 'configured' && (
+              <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--input-bg)', fontSize: 12, color: 'var(--ink-2)' }}>
+                Emails will be sent to each client's configured recipients from the mappings table below.
+              </div>
+            )}
+
+            {/* Status — always visible */}
             <div style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--input-bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                 Last sent: <strong style={{ color: 'var(--ink-2)' }}>{lastSentDisplay}</strong>
@@ -397,23 +425,51 @@ export default function Settings() {
               </div>
             </div>
 
-            {/* Info */}
-            <div style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg viewBox="0 0 512 512" style={{ width: 12, height: 12, fill: 'var(--ink-4)', flexShrink: 0 }}><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM216 336h24V272H216c-13.3 0-24-10.7-24-24s10.7-24 24-24h48c13.3 0 24 10.7 24 24v88h8c13.3 0 24 10.7 24 24s-10.7 24-24 24H216c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z" /></svg>
-              App must be running for scheduled emails to work. Sends summary of all clients and financial years.
-            </div>
-
-            {/* Actions */}
+            {/* Actions — always enabled */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button className="btn btn-secondary" onClick={handleSendNow} disabled={aeSending || aeTo.length === 0}
+              <button className="btn btn-secondary" onClick={handleSendNow} disabled={aeSending || (aeSendMode === 'all' && aeTo.length === 0) || (aeSendMode === 'configured' && entities.length === 0)}
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {aeSending ? <span className="btn-spinner" style={{ width: 12, height: 12 }} /> : null}
-                {aeSending ? 'Sending...' : 'Send Now (Test)'}
+                {aeSending ? 'Sending...' : 'Send Now'}
               </button>
               <button className="btn btn-primary" onClick={handleSaveScheduler}>Save</button>
             </div>
+
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg viewBox="0 0 512 512" style={{ width: 12, height: 12, fill: 'var(--ink-4)', flexShrink: 0 }}><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM216 336h24V272H216c-13.3 0-24-10.7-24-24s10.7-24 24-24h48c13.3 0 24 10.7 24 24v88h8c13.3 0 24 10.7 24 24s-10.7 24-24 24H216c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z" /></svg>
+              App must be running for scheduled emails
+            </div>
           </div>
         </div>
+
+        {/* Email Mappings — in Scheduler tab */}
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Email Mappings</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Per-client recipients</span>
+          </div>
+          <div className="table-wrapper" style={{ padding: '0 0 16px', maxHeight: 300, overflowY: 'auto' }}>
+            {entities.length === 0 ? (
+              <div className="empty-state"><div className="empty-state-title">No clients found</div><div className="empty-state-desc">Create folders first, then clients appear here</div></div>
+            ) : (
+              <table><thead><tr>
+                <th style={{ width: '35%' }}>Client</th><th style={{ width: '35%' }}>Recipients</th><th style={{ width: '30%', textAlign: 'center' }}>Action</th>
+              </tr></thead><tbody>
+                {entities.map((e) => {
+                  const m = (settings?.email_mappings || []).find((x) => x.entity_name.toLowerCase() === e.toLowerCase());
+                  return (
+                    <tr key={e}>
+                      <td className="primary-cell" style={{ fontWeight: 600 }}>{e}</td>
+                      <td>{m && m.to.length > 0 ? <span className="chip">{m.to.length} recipient{m.to.length > 1 ? 's' : ''}</span> : <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Not set</span>}</td>
+                      <td style={{ textAlign: 'center' }}><button className="btn btn-secondary btn-sm" onClick={() => openMappingEditor(e)}>Configure</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody></table>
+            )}
+          </div>
+        </div>
+        </>
       )}
 
       {/* ═══ Tab: About & Updates ═══ */}
@@ -497,6 +553,53 @@ export default function Settings() {
                   <button className="btn btn-secondary" onClick={updater.checkForUpdates} style={{ fontSize: 12 }}>Retry</button>
                 </div>
               )}
+            </div>
+
+            {/* Changelog */}
+            {changelog.length > 0 && (
+              <>
+                <div style={{ height: 1, background: 'var(--divider)' }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 12 }}>Release History</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {changelog.map((r) => {
+                      const isCurrent = r.version === `v${appVersion}`;
+                      return (
+                        <div key={r.version} onClick={() => setSelectedRelease(r)}
+                          style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: isCurrent ? 'var(--brand-bg)' : 'var(--input-bg)', cursor: 'pointer', transition: 'background 0.15s', border: isCurrent ? '1px solid rgba(97,95,255,0.15)' : '1px solid transparent' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand)' }}>{r.version}</span>
+                              {isCurrent && <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', padding: '2px 6px', borderRadius: 4, background: 'var(--brand)', color: 'white' }}>Current</span>}
+                            </div>
+                            <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{r.date}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Release Notes Popup ═══ */}
+      {selectedRelease && (
+        <div className="dialog-overlay" onClick={() => setSelectedRelease(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div>
+                <div className="dialog-title" style={{ textAlign: 'left', marginBottom: 2 }}>{selectedRelease.version}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{selectedRelease.date}</div>
+              </div>
+              <button onClick={() => setSelectedRelease(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 'var(--r-sm)' }}>
+                <IconXmark style={{ width: 14, height: 14, fill: 'var(--ink-3)' }} />
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto', padding: '12px 14px', background: 'var(--input-bg)', borderRadius: 'var(--r-sm)' }}>
+              {selectedRelease.notes || 'No release notes available.'}
             </div>
           </div>
         </div>

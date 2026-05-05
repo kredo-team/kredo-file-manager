@@ -12,8 +12,7 @@ const navItems = [
   { to: '/', icon: <IconHome />, label: 'Dashboard', shortcut: '' },
   { to: '/folders', icon: <IconFolderPlus />, label: 'Create Folders', shortcut: '' },
   { to: '/upload', icon: <IconUpload />, label: 'Upload & Organize', shortcut: 'Ctrl+U' },
-  { to: '/scan', icon: <IconEye />, label: 'Scan & Preview', shortcut: 'Ctrl+S' },
-  { to: '/export', icon: <IconPaperPlane />, label: 'Export & Email', shortcut: 'Ctrl+E' },
+  { to: '/scan', icon: <IconEye />, label: 'Scan & Export', shortcut: 'Ctrl+S' },
   { to: '/export-zip', icon: <IconZip />, label: 'Export Zip', shortcut: '' },
 ];
 
@@ -24,8 +23,7 @@ const HelpOverlay = ({ onClose }: { onClose: () => void }) => {
       title: 'Navigation',
       shortcuts: [
         { keys: 'Ctrl + U', desc: 'Upload & Organize' },
-        { keys: 'Ctrl + S', desc: 'Scan & Preview' },
-        { keys: 'Ctrl + E', desc: 'Export & Email' },
+        { keys: 'Ctrl + S', desc: 'Scan & Export' },
       ],
     },
     {
@@ -145,7 +143,6 @@ export default function Layout() {
         switch (e.key.toLowerCase()) {
           case 'u': e.preventDefault(); navigate('/upload'); break;
           case 's': if (!inInput) { e.preventDefault(); navigate('/scan'); } break;
-          case 'e': e.preventDefault(); navigate('/export'); break;
         }
       }
       // ? key opens help (only when not in input)

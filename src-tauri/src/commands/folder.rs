@@ -10,9 +10,9 @@ pub struct FolderResult {
     pub skipped: Vec<String>,
 }
 
-/// All operations go inside root/data/ to isolate from other files
-fn data_dir(root_path: &str) -> PathBuf {
-    let p = PathBuf::from(root_path).join("data");
+/// All operations go inside root/ directly — clients are direct children
+fn root_dir(root_path: &str) -> PathBuf {
+    let p = PathBuf::from(root_path);
     fs::create_dir_all(&p).ok();
     p
 }
@@ -102,8 +102,8 @@ pub fn create_folders(
     month_wise: bool,
     statement_types: Vec<SelectedStatementType>,
 ) -> Result<FolderResult, String> {
-    let data = data_dir(&root_path);
-    let base = data.join(&entity_name);
+    let root = root_dir(&root_path);
+    let base = root.join(&entity_name);
     let mut created: Vec<String> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
 
@@ -182,17 +182,17 @@ pub fn path_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
 
-/// List all entity folders under root/data/
+/// List all entity folders under root/
 #[tauri::command]
 pub fn list_entities(root_path: String) -> Result<Vec<String>, String> {
-    let data = data_dir(&root_path);
-    if !data.exists() {
+    let root = root_dir(&root_path);
+    if !root.exists() {
         return Ok(Vec::new());
     }
 
     let mut entities: Vec<String> = Vec::new();
     let entries =
-        fs::read_dir(&data).map_err(|e| format!("Failed to read data directory: {}", e))?;
+        fs::read_dir(&root).map_err(|e| format!("Failed to read root directory: {}", e))?;
 
     for entry in entries {
         if let Ok(entry) = entry {
@@ -208,10 +208,10 @@ pub fn list_entities(root_path: String) -> Result<Vec<String>, String> {
     Ok(entities)
 }
 
-/// List financial year folders under root/data/entity/
+/// List financial year folders under root/entity/
 #[tauri::command]
 pub fn list_financial_years(root_path: String, entity_name: String) -> Result<Vec<String>, String> {
-    let entity_path = data_dir(&root_path).join(&entity_name);
+    let entity_path = root_dir(&root_path).join(&entity_name);
     if !entity_path.exists() {
         return Ok(Vec::new());
     }
@@ -247,7 +247,7 @@ pub fn list_unsorted_files(
     entity_name: String,
     financial_year: String,
 ) -> Result<Vec<UnsortedFile>, String> {
-    let fy_path = data_dir(&root_path).join(&entity_name).join(&financial_year);
+    let fy_path = root_dir(&root_path).join(&entity_name).join(&financial_year);
     if !fy_path.exists() {
         return Ok(Vec::new());
     }
@@ -287,7 +287,7 @@ pub fn move_unsorted_files(
     entity_name: String,
     financial_year: String,
 ) -> Result<MoveResult, String> {
-    let fy_path = data_dir(&root_path).join(&entity_name).join(&financial_year);
+    let fy_path = root_dir(&root_path).join(&entity_name).join(&financial_year);
     let unsorted_dir = fy_path.join("_Unsorted");
 
     // Get list of loose files first
@@ -368,11 +368,11 @@ pub fn list_all_financial_years(
     root_path: String,
     entity_names: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    let data = data_dir(&root_path);
+    let root = root_dir(&root_path);
     let entities = if entity_names.is_empty() {
         // Get all entities
         let mut all: Vec<String> = Vec::new();
-        if let Ok(entries) = fs::read_dir(&data) {
+        if let Ok(entries) = fs::read_dir(&root) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
                     if let Some(name) = entry.file_name().to_str() {
@@ -388,7 +388,7 @@ pub fn list_all_financial_years(
 
     let mut fy_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for entity in &entities {
-        let entity_path = data.join(entity);
+        let entity_path = root.join(entity);
         if let Ok(entries) = fs::read_dir(&entity_path) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
@@ -419,7 +419,7 @@ pub fn export_zip(
     financial_year: String,
     save_path: String,
 ) -> Result<ZipResult, String> {
-    let source = data_dir(&root_path).join(&entity_name).join(&financial_year);
+    let source = root_dir(&root_path).join(&entity_name).join(&financial_year);
 
     if !source.exists() {
         return Err(format!("Directory not found: {}\\{}\\{}", root_path, entity_name, financial_year));
@@ -497,7 +497,7 @@ pub fn export_zip(
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TreeNode {
     pub name: String,
-    pub path: String,          // relative from data/
+    pub path: String,          // relative from root/
     pub full_path: String,     // absolute
     pub depth: usize,
     pub is_expanded: bool,     // always false from backend — frontend manages state
@@ -505,15 +505,15 @@ pub struct TreeNode {
     pub file_count: usize,
 }
 
-/// Walk data/ and return a flat list of all directories as tree nodes
+/// Walk root/ and return a flat list of all directories as tree nodes
 #[tauri::command]
 pub fn browse_data_tree(root_path: String) -> Result<Vec<TreeNode>, String> {
-    let data = data_dir(&root_path);
-    if !data.exists() {
+    let root = root_dir(&root_path);
+    if !root.exists() {
         return Ok(Vec::new());
     }
     let mut nodes: Vec<TreeNode> = Vec::new();
-    walk_tree(&data, &data, 0, &mut nodes)?;
+    walk_tree(&root, &root, 0, &mut nodes)?;
     Ok(nodes)
 }
 
