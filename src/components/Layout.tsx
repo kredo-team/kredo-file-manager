@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { getVersion } from '@tauri-apps/api/app';
 import { useAppStore } from '../store/appStore';
 import {
   IconHome, IconFolderPlus, IconEye, IconPaperPlane, IconZip, IconUpload,
@@ -101,6 +102,9 @@ export default function Layout() {
   const navigate = useNavigate();
   const showHelp = useAppStore((s) => s.showHelp);
   const setShowHelp = useAppStore((s) => s.setShowHelp);
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
   // Auto email scheduler
   useAutoEmail();
@@ -165,7 +169,7 @@ export default function Layout() {
           <div className="sidebar-icon-box">K</div>
           <div className="sidebar-brand-info">
             <div className="sidebar-brand-name">Kredo Files</div>
-            <div className="sidebar-brand-ver">v1.0.0</div>
+            <div className="sidebar-brand-ver">v{appVersion || '...'}</div>
           </div>
         </div>
 

@@ -598,8 +598,20 @@ export default function Settings() {
                 <IconXmark style={{ width: 14, height: 14, fill: 'var(--ink-3)' }} />
               </button>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 400, overflowY: 'auto', padding: '12px 14px', background: 'var(--input-bg)', borderRadius: 'var(--r-sm)' }}>
-              {selectedRelease.notes || 'No release notes available.'}
+            <div style={{ maxHeight: 400, overflowY: 'auto', padding: '16px 18px', background: 'var(--input-bg)', borderRadius: 'var(--r-sm)' }}>
+              {(selectedRelease.notes || 'No release notes available.').split('\n').map((line, i) => {
+                const l = line.trim();
+                if (!l) return <div key={i} style={{ height: 10 }} />;
+                if (l.startsWith('## ')) return <div key={i} style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 8, marginTop: i > 0 ? 8 : 0 }}>{l.replace('## ', '')}</div>;
+                if (l.startsWith('**') && l.endsWith('**')) return <div key={i} style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand)', marginTop: 14, marginBottom: 6 }}>{l.replace(/\*\*/g, '')}</div>;
+                if (l.startsWith('- ')) return (
+                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 3 }}>
+                    <span style={{ color: 'var(--brand)', fontWeight: 600, flexShrink: 0 }}>•</span>
+                    <span>{l.slice(2).replace(/\*\*(.*?)\*\*/g, '$1')}</span>
+                  </div>
+                );
+                return <div key={i} style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>{l}</div>;
+              })}
             </div>
           </div>
         </div>
