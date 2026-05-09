@@ -38,6 +38,10 @@ if /i not "%CONFIRM%"=="y" (
 )
 
 echo.
+echo  Installing dependencies...
+call npm install
+
+echo.
 echo  Committing changes...
 git add .
 git commit -m "v%VER%"
