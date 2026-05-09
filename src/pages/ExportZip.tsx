@@ -13,85 +13,71 @@ export default function ExportZip() {
 
   const [entities, setEntities] = useState<string[]>([]);
   const [selectedEntity, setSelectedEntity] = useState('');
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState('');
   const [fyList, setFyList] = useState<string[]>([]);
   const [selectedFY, setSelectedFY] = useState('');
   const [scanning, setScanning] = useState(false);
   const [preview, setPreview] = useState<{ files: number; folders: number; size: string } | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  // Load entities
   useEffect(() => {
     if (!settings?.root_path) return;
     invoke<string[]>('list_entities', { rootPath: settings.root_path }).then(setEntities).catch(() => {});
   }, [settings?.root_path]);
 
-  // Load FYs when entity changes
+  // Load accounts when entity changes
   useEffect(() => {
-    if (!settings?.root_path || !selectedEntity) { setFyList([]); setSelectedFY(''); return; }
-    invoke<string[]>('list_all_financial_years', {
-      rootPath: settings.root_path,
-      entityNames: [selectedEntity],
-    }).then((fys) => {
-      setFyList(fys);
-      if (fys.length > 0) setSelectedFY(fys[fys.length - 1]);
-      else setSelectedFY('');
-    }).catch(() => {});
+    if (!settings?.root_path || !selectedEntity) { setAccounts([]); setSelectedAccount(''); return; }
+    invoke<string[]>('list_accounts', { rootPath: settings.root_path, entityNames: [selectedEntity] })
+      .then((accs) => { setAccounts(accs); if (accs.length > 0) setSelectedAccount(accs[0]); else setSelectedAccount(''); })
+      .catch(() => {});
   }, [settings?.root_path, selectedEntity]);
 
-  // Auto-scan for preview when both selected
+  // Load FYs when account changes
   useEffect(() => {
-    if (!selectedEntity || !selectedFY || !settings?.root_path) { setPreview(null); return; }
+    if (!settings?.root_path || !selectedEntity || !selectedAccount) { setFyList([]); setSelectedFY(''); return; }
+    invoke<string[]>('list_all_financial_years', {
+      rootPath: settings.root_path, entityNames: [selectedEntity], accountNames: [selectedAccount],
+    }).then((fys) => {
+      setFyList(fys);
+      if (fys.length > 0) setSelectedFY(fys[fys.length - 1]); else setSelectedFY('');
+    }).catch(() => {});
+  }, [settings?.root_path, selectedEntity, selectedAccount]);
+
+  // Auto-scan preview
+  useEffect(() => {
+    if (!selectedEntity || !selectedAccount || !selectedFY || !settings?.root_path) { setPreview(null); return; }
     setScanning(true);
     invoke<ScanResult>('scan_directory', {
-      rootPath: settings.root_path,
-      entityName: selectedEntity,
-      financialYear: selectedFY,
+      rootPath: settings.root_path, entityName: selectedEntity, accountName: selectedAccount, financialYear: selectedFY,
     }).then((res) => {
-      setPreview({
-        files: res.total_files,
-        folders: res.total_folders,
-        size: res.total_size_display,
-      });
+      setPreview({ files: res.total_files, folders: res.total_folders, size: res.total_size_display });
     }).catch(() => {
       setPreview({ files: 0, folders: 0, size: '—' });
     }).finally(() => setScanning(false));
-  }, [selectedEntity, selectedFY, settings?.root_path]);
+  }, [selectedEntity, selectedAccount, selectedFY, settings?.root_path]);
 
   const handleExport = async () => {
-    if (!selectedEntity || !selectedFY || !settings?.root_path) return;
+    if (!selectedEntity || !selectedAccount || !selectedFY || !settings?.root_path) return;
     try {
       const { save } = await import('@tauri-apps/plugin-dialog');
-      const defaultName = `${selectedEntity}_${selectedFY.replace(/\s/g, '')}.zip`;
-      const path = await save({
-        defaultPath: defaultName,
-        filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
-      });
+      const defaultName = `${selectedEntity}_${selectedAccount}_${selectedFY.replace(/\s/g, '')}.zip`;
+      const path = await save({ defaultPath: defaultName, filters: [{ name: 'Zip Archive', extensions: ['zip'] }] });
       if (!path) return;
-
       setExporting(true);
       const result = await invoke<ZipResult>('export_zip', {
-        rootPath: settings.root_path,
-        entityName: selectedEntity,
-        financialYear: selectedFY,
-        savePath: path,
+        rootPath: settings.root_path, entityName: selectedEntity, accountName: selectedAccount,
+        financialYear: selectedFY, savePath: path,
       });
       addToast('success', result.message);
-
-      // Try to open the folder containing the zip
-      try {
-        const folder = path.replace(/[\\/][^\\/]+$/, '');
-        const { open } = await import('@tauri-apps/plugin-shell');
-        await open(folder);
-      } catch {}
-    } catch (err) {
-      addToast('error', String(err));
-    } finally {
-      setExporting(false);
-    }
+      try { const folder = path.replace(/[\\/][^\\/]+$/, ''); const { open } = await import('@tauri-apps/plugin-shell'); await open(folder); } catch {}
+    } catch (err) { addToast('error', String(err)); }
+    finally { setExporting(false); }
   };
 
   const rootSet = !!settings?.root_path;
-  const canExport = selectedEntity && selectedFY && preview && preview.files > 0 && !exporting;
+  const canExport = selectedEntity && selectedAccount && selectedFY && preview && preview.files > 0 && !exporting;
 
   return (
     <>
@@ -107,14 +93,21 @@ export default function ExportZip() {
       )}
 
       <div className="card">
-        <div className="card-header"><span className="card-title">Select Client & Financial Year</span></div>
+        <div className="card-header"><span className="card-title">Select Client, Account & Financial Year</span></div>
         <div className="card-body">
-          <div className="form-grid form-grid-2" style={{ marginBottom: 20 }}>
+          <div className="form-grid form-grid-3" style={{ marginBottom: 20 }}>
             <div className="input-group">
-              <label className="input-label">Client Name</label>
+              <label className="input-label">Client</label>
               <select className="select-field" value={selectedEntity} onChange={(e) => setSelectedEntity(e.target.value)}>
                 <option value="">Select client</option>
                 {entities.map((e) => <option key={e} value={e}>{e}</option>)}
+              </select>
+            </div>
+            <div className="input-group">
+              <label className="input-label">Account</label>
+              <select className="select-field" value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
+                {accounts.length === 0 && <option value="">—</option>}
+                {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div className="input-group">
@@ -126,12 +119,7 @@ export default function ExportZip() {
             </div>
           </div>
 
-          {/* Preview */}
-          {scanning && (
-            <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>
-              Scanning files...
-            </div>
-          )}
+          {scanning && <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>Scanning files...</div>}
 
           {preview && !scanning && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', marginBottom: 20, overflow: 'hidden' }}>
@@ -139,20 +127,17 @@ export default function ExportZip() {
                 <div style={{ width: 28, height: 28, borderRadius: 'var(--r-xs)', background: 'var(--brand-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <IconZip style={{ width: 14, height: 14, fill: 'var(--brand)' }} />
                 </div>
-                {[
-                  selectedEntity,
-                  selectedFY,
+                {[selectedEntity, selectedAccount, selectedFY,
                   `${preview.files} file${preview.files !== 1 ? 's' : ''}`,
                   `${preview.folders} folder${preview.folders !== 1 ? 's' : ''}`,
                   preview.size,
                 ].map((label, i) => (
                   <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {i > 0 && <span style={{ color: 'var(--ink-4)', fontSize: 10 }}>·</span>}
-                    <span style={{ padding: '4px 12px', borderRadius: 20, background: i >= 2 ? 'var(--brand-bg)' : 'var(--input-bg)', fontSize: 12, fontWeight: 500, color: i >= 2 ? 'var(--brand)' : 'var(--ink-2)' }}>{label}</span>
+                    <span style={{ padding: '4px 12px', borderRadius: 20, background: i >= 3 ? 'var(--brand-bg)' : 'var(--input-bg)', fontSize: 12, fontWeight: 500, color: i >= 3 ? 'var(--brand)' : 'var(--ink-2)' }}>{label}</span>
                   </span>
                 ))}
               </div>
-
               {preview.files === 0 && (
                 <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', fontSize: 12.5, color: 'var(--ink-3)' }}>
                   No files found in this directory. Nothing to export.

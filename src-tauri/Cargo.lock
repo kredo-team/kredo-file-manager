@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "kredo-file-manager"
-version = "1.0.0"
+version = "1.0.6"
 dependencies = [
  "calamine",
  "chrono",

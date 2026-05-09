@@ -1,6 +1,6 @@
 [package]
 name = "kredo-file-manager"
-version = "1.0.0"
+version = "1.0.6"
 description = "Kredo File Manager — GST Document Organization"
 authors = ["Kredo"]
 edition = "2021"

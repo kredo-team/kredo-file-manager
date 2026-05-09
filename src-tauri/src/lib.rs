@@ -15,6 +15,7 @@ pub fn run() {
             folder::create_folders,
             folder::path_exists,
             folder::list_entities,
+            folder::list_accounts,
             folder::list_financial_years,
             folder::list_unsorted_files,
             folder::move_unsorted_files,

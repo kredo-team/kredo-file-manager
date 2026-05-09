@@ -28,6 +28,7 @@ export interface FolderNode {
 export interface StatementType {
   name: string;
   sub_folders: FolderNode[];
+  monthly: boolean;
 }
 
 export interface SelectedFolderNode {
@@ -37,7 +38,7 @@ export interface SelectedFolderNode {
 
 export interface SelectedStatementType {
   name: string;
-  type_only: boolean;
+  monthly: boolean;
   folders: SelectedFolderNode[];
 }
 
@@ -128,4 +129,3 @@ export interface ToastMessage {
   text: string;
   exiting?: boolean;
 }
-export type FolderMode = 'fy_only' | 'month_wise';

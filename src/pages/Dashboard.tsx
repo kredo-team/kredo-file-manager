@@ -17,12 +17,8 @@ export default function Dashboard() {
       try {
         const entities = await invoke<string[]>('list_entities', { rootPath: settings.root_path });
         setEntityCount(entities.length);
-        let totalFy = 0;
-        for (const e of entities) {
-          const fys = await invoke<string[]>('list_financial_years', { rootPath: settings.root_path, entityName: e });
-          totalFy += fys.length;
-        }
-        setFyCount(totalFy);
+        const fys = await invoke<string[]>('list_all_financial_years', { rootPath: settings.root_path, entityNames: [], accountNames: [] });
+        setFyCount(fys.length);
       } catch { /* ignore */ }
     })();
   }, [settings?.root_path]);

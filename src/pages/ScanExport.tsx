@@ -7,9 +7,9 @@ import { IconEye, IconSearch, IconPaperPlane } from '../components/Icons';
 import type { SmtpConfig, EmailPayload } from '../types';
 
 /* ═══ Types ═══ */
-interface AuditRow { client: string; fy: string; month: string; statement_path: string; status: string; count: number; }
+interface AuditRow { client: string; account: string; fy: string; month: string; statement_path: string; status: string; count: number; }
 interface AuditResult { rows: AuditRow[]; total_folders: number; filled: number; empty: number; completion: number; }
-interface ChipRow { client: string; fy: string; statementType: string; isFyLevel: boolean; months: Record<string, number>; total: number; }
+interface ChipRow { client: string; account: string; fy: string; statementType: string; isFyLevel: boolean; months: Record<string, number>; total: number; }
 
 const MONTH_NAMES = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
 const DASH = '\u2014';
@@ -29,19 +29,19 @@ function fyMonthKeys(fy: string): string[] {
 function tog(arr: string[], v: string) { return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]; }
 
 function pivotToChipGrid(rows: AuditRow[]): ChipRow[] {
-  const aggMap = new Map<string, { client: string; fy: string; month: string; type: string; count: number }>();
+  const aggMap = new Map<string, { client: string; account: string; fy: string; month: string; type: string; count: number }>();
   for (const r of rows) {
     const fyShort = r.fy.replace('FY ', '');
     const pt = r.statement_path.split(' \u2192 ')[0] || r.statement_path;
-    const k = `${r.client}||${fyShort}||${r.month}||${pt}`;
+    const k = `${r.client}||${r.account}||${fyShort}||${r.month}||${pt}`;
     const ex = aggMap.get(k);
-    if (ex) { ex.count += r.count; } else { aggMap.set(k, { client: r.client, fy: fyShort, month: r.month, type: pt, count: r.count }); }
+    if (ex) { ex.count += r.count; } else { aggMap.set(k, { client: r.client, account: r.account, fy: fyShort, month: r.month, type: pt, count: r.count }); }
   }
   const groupMap = new Map<string, ChipRow>();
   for (const agg of aggMap.values()) {
     const isFy = agg.month === DASH;
-    const gk = `${agg.client}||${agg.fy}||${agg.type}||${isFy ? 'fy' : 'month'}`;
-    if (!groupMap.has(gk)) groupMap.set(gk, { client: agg.client, fy: agg.fy, statementType: agg.type, isFyLevel: isFy, months: {}, total: 0 });
+    const gk = `${agg.client}||${agg.account}||${agg.fy}||${agg.type}||${isFy ? 'fy' : 'month'}`;
+    if (!groupMap.has(gk)) groupMap.set(gk, { client: agg.client, account: agg.account, fy: agg.fy, statementType: agg.type, isFyLevel: isFy, months: {}, total: 0 });
     const row = groupMap.get(gk)!;
     row.months[agg.month] = (row.months[agg.month] || 0) + agg.count;
     row.total += agg.count;
@@ -49,6 +49,8 @@ function pivotToChipGrid(rows: AuditRow[]): ChipRow[] {
   const result = Array.from(groupMap.values());
   result.sort((a, b) => {
     let c = a.client.localeCompare(b.client);
+    if (c !== 0) return c;
+    c = a.account.localeCompare(b.account);
     if (c !== 0) return c;
     c = a.fy.localeCompare(b.fy);
     if (c !== 0) return c;
@@ -65,8 +67,9 @@ function generateEmailHTML(rows: ChipRow[], filled: number, empty: number, total
   const tdS = 'border-bottom:1px solid #F0EFF5;vertical-align:middle;';
   let prev = '';
   const html = rows.map((r) => {
-    const sep = prev && prev !== `${r.client}||${r.fy}` ? '<tr><td colspan="4" style="padding:0;height:8px;border-bottom:none;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-bottom:2px solid #EEEDFA;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>' : '';
-    prev = `${r.client}||${r.fy}`;
+    const cur = `${r.client}||${r.account}||${r.fy}`;
+    const sep = prev && prev !== cur ? '<tr><td colspan="5" style="padding:0;height:8px;border-bottom:none;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-bottom:2px solid #EEEDFA;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>' : '';
+    prev = cur;
     const tn = r.statementType === DASH ? `${DASH} (FY level)` : r.statementType;
     const mks = fyMonthKeys(r.fy);
     const chips = r.isFyLevel
@@ -74,6 +77,7 @@ function generateEmailHTML(rows: ChipRow[], filled: number, empty: number, total
       : `<table cellpadding="0" cellspacing="1" width="100%"><tr>${mks.slice(0,6).map((mk,i) => { const c=r.months[mk]||0; return `<td style="${cellS}"><span style="${cs(c>0)}">${MONTH_NAMES[i]} ${c}</span></td>`; }).join('')}</tr><tr>${mks.slice(6).map((mk,i) => { const c=r.months[mk]||0; return `<td style="${cellS}"><span style="${cs(c>0)}">${MONTH_NAMES[i+6]} ${c}</span></td>`; }).join('')}</tr></table>`;
     return `${sep}<tr style="height:48px;">
       <td style="padding:0 6px;font-size:11px;color:#615FFF;font-weight:600;${tdS}white-space:nowrap;">${r.client}</td>
+      <td style="padding:0 6px;font-size:11px;color:#5E5C7A;${tdS}white-space:nowrap;">${r.account}</td>
       <td style="padding:0 6px;font-size:11px;color:#5E5C7A;${tdS}white-space:nowrap;">${r.fy}</td>
       <td style="padding:0 6px;font-size:11px;color:#131126;font-weight:500;${tdS}">${tn}</td>
       <td style="padding:4px 2px;${tdS}">${chips}</td>
@@ -83,7 +87,7 @@ function generateEmailHTML(rows: ChipRow[], filled: number, empty: number, total
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#F5F4FC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F4FC;padding:16px 0;"><tr><td align="center">
-<table cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#FFF;border-radius:12px;overflow:hidden;">
+<table cellpadding="0" cellspacing="0" style="max-width:720px;width:100%;background:#FFF;border-radius:12px;overflow:hidden;">
 <tr><td style="background:#615FFF;padding:18px 16px;"><table width="100%" cellpadding="0" cellspacing="0"><tr>
 <td width="32" height="32" style="background:rgba(255,255,255,0.2);border-radius:8px;text-align:center;font-size:14px;font-weight:700;color:white;line-height:32px;">K</td>
 <td style="padding-left:10px;vertical-align:middle;"><div style="color:white;font-size:14px;font-weight:600;line-height:1.2;">Kredo File Manager</div><div style="color:rgba(255,255,255,0.65);font-size:10px;line-height:1.2;margin-top:2px;">Automated status report</div></td>
@@ -95,7 +99,7 @@ function generateEmailHTML(rows: ChipRow[], filled: number, empty: number, total
 <td width="50%" style="text-align:center;padding:12px 0;"><div style="font-size:22px;font-weight:700;color:#615FFF;">${completion}%</div><div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#908EAF;margin-top:3px;">Complete</div></td></tr>
 </table></td></tr>
 <tr><td style="padding:0 16px 16px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #F0EFF5;border-radius:6px;overflow:hidden;">
-<tr style="background:#F5F4FC;height:48px;"><th style="${thS}">Client</th><th style="${thS}">FY</th><th style="${thS}">Type</th><th style="${thS}padding:0 2px;">Months</th></tr>
+<tr style="background:#F5F4FC;height:48px;"><th style="${thS}">Client</th><th style="${thS}">Account</th><th style="${thS}">FY</th><th style="${thS}">Type</th><th style="${thS}padding:0 2px;">Months</th></tr>
 ${html}
 </table></td></tr>
 <tr><td style="padding:12px 16px;border-top:1px solid #F0EFF5;text-align:center;"><div style="font-size:10px;color:#908EAF;">Detailed monthly audit attached as Excel</div><div style="font-size:9px;color:#C4C3D4;margin-top:4px;">Automated report by Kredo File Manager</div></td></tr>
@@ -110,6 +114,8 @@ export default function ScanExport() {
 
   const [entities, setEntities] = useState<string[]>([]);
   const [selectedEntities, setSelectedEntities] = useState<string[]>([]);
+  const [accountList, setAccountList] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [fyList, setFyList] = useState<string[]>([]);
   const [selectedFYs, setSelectedFYs] = useState<string[]>([]);
   const [stmtTypes, setStmtTypes] = useState<string[]>([]);
@@ -120,6 +126,7 @@ export default function ScanExport() {
   const [sending, setSending] = useState(false);
 
   const [clientDDOpen, setClientDDOpen] = useState(false);
+  const [accountDDOpen, setAccountDDOpen] = useState(false);
   const [fyDDOpen, setFyDDOpen] = useState(false);
   const [stmtDDOpen, setStmtDDOpen] = useState(false);
   const [statusDDOpen, setStatusDDOpen] = useState(false);
@@ -130,12 +137,10 @@ export default function ScanExport() {
   const [ccField, setCcField] = useState('');
   const [subjectField, setSubjectField] = useState('');
 
-  const closeAllDD = () => { setClientDDOpen(false); setFyDDOpen(false); setStmtDDOpen(false); setStatusDDOpen(false); };
+  const closeAllDD = () => { setClientDDOpen(false); setAccountDDOpen(false); setFyDDOpen(false); setStmtDDOpen(false); setStatusDDOpen(false); };
 
-  // Reload settings on mount to pick up root_path changes from Settings page
   useEffect(() => { loadSettings(); }, []);
 
-  // Load entities when root_path changes
   useEffect(() => {
     if (!settings?.root_path) return;
     invoke<string[]>('list_entities', { rootPath: settings.root_path }).then((list) => {
@@ -144,24 +149,31 @@ export default function ScanExport() {
     setHasResults(false); setRawRows([]);
   }, [settings?.root_path]);
 
-  // Load FYs when entities change
+  // Load accounts when entities change
   useEffect(() => {
-    if (!settings?.root_path || selectedEntities.length === 0) { setFyList([]); setSelectedFYs([]); return; }
-    invoke<string[]>('list_all_financial_years', { rootPath: settings.root_path, entityNames: selectedEntities })
+    if (!settings?.root_path || selectedEntities.length === 0) { setAccountList([]); setSelectedAccounts([]); return; }
+    invoke<string[]>('list_accounts', { rootPath: settings.root_path, entityNames: selectedEntities })
+      .then((accs) => { setAccountList(accs); setSelectedAccounts(accs); }).catch(() => {});
+  }, [settings?.root_path, selectedEntities]);
+
+  // Load FYs when accounts change
+  useEffect(() => {
+    if (!settings?.root_path || selectedEntities.length === 0 || selectedAccounts.length === 0) { setFyList([]); setSelectedFYs([]); return; }
+    invoke<string[]>('list_all_financial_years', { rootPath: settings.root_path, entityNames: selectedEntities, accountNames: selectedAccounts })
       .then((fys) => {
         setFyList(fys);
         setSelectedFYs((prev) => { const v = prev.filter((f) => fys.includes(f)); return v.length > 0 ? v : fys.length > 0 ? [fys[fys.length - 1]] : []; });
       }).catch(() => {});
-  }, [settings?.root_path, selectedEntities]);
+  }, [settings?.root_path, selectedEntities, selectedAccounts]);
 
-  // Load statement types from folder structure (before scan)
+  // Load statement types
   useEffect(() => {
-    if (!settings?.root_path || selectedEntities.length === 0 || selectedFYs.length === 0) { setStmtTypes([]); setSelectedStmts([]); return; }
-    invoke<string[]>('list_statement_types', { rootPath: settings.root_path, entityNames: selectedEntities, financialYears: selectedFYs })
+    if (!settings?.root_path || selectedEntities.length === 0 || selectedAccounts.length === 0 || selectedFYs.length === 0) { setStmtTypes([]); setSelectedStmts([]); return; }
+    invoke<string[]>('list_statement_types', { rootPath: settings.root_path, entityNames: selectedEntities, accountNames: selectedAccounts, financialYears: selectedFYs })
       .then((types) => { setStmtTypes(types); setSelectedStmts(types); }).catch(() => {});
-  }, [settings?.root_path, selectedEntities, selectedFYs]);
+  }, [settings?.root_path, selectedEntities, selectedAccounts, selectedFYs]);
 
-  // Auto-fill email from mappings
+  // Auto-fill email
   useEffect(() => {
     const names = selectedEntities.join(', ');
     const fyLabel = selectedFYs.map((f) => f.replace('FY ', '')).join(', ');
@@ -176,47 +188,44 @@ export default function ScanExport() {
     setCcField([...new Set(ccs)].join(', '));
   }, [selectedEntities, selectedFYs, settings?.email_mappings]);
 
-  // Close dropdowns on outside click
   useEffect(() => {
-    if (!clientDDOpen && !fyDDOpen && !stmtDDOpen && !statusDDOpen) return;
+    if (!clientDDOpen && !accountDDOpen && !fyDDOpen && !stmtDDOpen && !statusDDOpen) return;
     const h = () => closeAllDD();
     document.addEventListener('click', h);
     return () => document.removeEventListener('click', h);
-  }, [clientDDOpen, fyDDOpen, stmtDDOpen, statusDDOpen]);
+  }, [clientDDOpen, accountDDOpen, fyDDOpen, stmtDDOpen, statusDDOpen]);
 
-  useEffect(() => { setHasResults(false); }, [selectedEntities, selectedFYs]);
+  useEffect(() => { setHasResults(false); }, [selectedEntities, selectedAccounts, selectedFYs]);
 
-  // Scan
   const handleScan = async () => {
-    if (selectedEntities.length === 0 || selectedFYs.length === 0 || !settings?.root_path) {
-      addToast('error', 'Select at least one client and financial year'); return;
+    if (selectedEntities.length === 0 || selectedAccounts.length === 0 || selectedFYs.length === 0 || !settings?.root_path) {
+      addToast('error', 'Select at least one client, account, and financial year'); return;
     }
     setLoading(true); setHasResults(false);
     try {
-      const result = await invoke<AuditResult>('scan_audit', { rootPath: settings.root_path, entityNames: selectedEntities, financialYears: selectedFYs });
+      const result = await invoke<AuditResult>('scan_audit', {
+        rootPath: settings.root_path, entityNames: selectedEntities, accountNames: selectedAccounts, financialYears: selectedFYs,
+      });
       setRawRows(result.rows); setHasResults(true);
       addToast('success', `Scanned ${result.total_folders} folders`);
     } catch (err) { addToast('error', String(err)); }
     finally { setLoading(false); }
   };
 
-  // Pivot + filter
   const chipRows = pivotToChipGrid(rawRows);
   const displayRows = chipRows.filter((r) => {
     const rowStatus = r.total > 0 ? 'ok' : 'empty';
     if (!statusFilter.includes(rowStatus)) return false;
-    // Filter by selected statement types (only real types, not synthetic "—")
     if (selectedStmts.length > 0 && selectedStmts.length < stmtTypes.length) {
       if (r.statementType !== DASH && r.statementType !== 'Unsorted' && !selectedStmts.includes(r.statementType)) return false;
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      if (!r.client.toLowerCase().includes(q) && !r.statementType.toLowerCase().includes(q)) return false;
+      if (!r.client.toLowerCase().includes(q) && !r.account.toLowerCase().includes(q) && !r.statementType.toLowerCase().includes(q)) return false;
     }
     return true;
   });
 
-  // Stats from month-level chips
   const chipsFilled = displayRows.reduce((s, r) => {
     if (r.isFyLevel) return s + (r.total > 0 ? 1 : 0);
     const mks = fyMonthKeys(r.fy);
@@ -226,14 +235,12 @@ export default function ScanExport() {
   const chipsEmpty = chipsTotal - chipsFilled;
   const statsCompletion = chipsTotal > 0 ? Math.round((chipsFilled / chipsTotal) * 1000) / 10 : 0;
 
-  // Send with Excel attachment — both body and Excel respect current filters
   const handleSend = async () => {
     if (!settings?.smtp?.host) { addToast('error', 'Configure SMTP in Settings → Email Setup'); return; }
     const toList = toField.split(',').map((s) => s.trim()).filter(Boolean);
     if (toList.length === 0) { addToast('error', 'Enter at least one recipient'); return; }
     setSending(true);
     try {
-      // Filter rawRows to match current filter selections
       const filteredRaw = rawRows.filter((r) => {
         const topType = r.statement_path.split(' \u2192 ')[0] || r.statement_path;
         if (selectedStmts.length > 0 && selectedStmts.length < stmtTypes.length && topType !== '\u2014' && topType !== 'Unsorted' && !selectedStmts.includes(topType)) return false;
@@ -241,7 +248,7 @@ export default function ScanExport() {
         if (!statusFilter.includes(rowStatus)) return false;
         if (search.trim()) {
           const q = search.toLowerCase();
-          if (!r.client.toLowerCase().includes(q) && !r.statement_path.toLowerCase().includes(q)) return false;
+          if (!r.client.toLowerCase().includes(q) && !r.account.toLowerCase().includes(q) && !r.statement_path.toLowerCase().includes(q)) return false;
         }
         return true;
       });
@@ -254,20 +261,21 @@ export default function ScanExport() {
     } catch (err) { addToast('error', `Email failed: ${String(err)}`); }
     finally { setSending(false); }
   };
+
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(generateEmailHTML(displayRows, chipsFilled, chipsEmpty, chipsTotal, statsCompletion)); addToast('success', 'HTML copied'); }
     catch { addToast('error', 'Copy failed'); }
   };
 
-  const getClientGroup = (idx: number) => `${displayRows[idx]?.client}||${displayRows[idx]?.fy}`;
+  const getClientGroup = (idx: number) => `${displayRows[idx]?.client}||${displayRows[idx]?.account}||${displayRows[idx]?.fy}`;
 
   /* ═══ Labels ═══ */
   const clientLabel = selectedEntities.length === entities.length && entities.length > 0 ? 'All clients' : selectedEntities.length === 0 ? 'Select' : selectedEntities.length <= 2 ? selectedEntities.join(', ') : `${selectedEntities.length} selected`;
+  const accountLabel = selectedAccounts.length === accountList.length && accountList.length > 0 ? 'All accounts' : selectedAccounts.length === 0 ? 'Select' : selectedAccounts.length <= 2 ? selectedAccounts.join(', ') : `${selectedAccounts.length} selected`;
   const fyLabel = selectedFYs.length === fyList.length && fyList.length > 0 ? 'All FYs' : selectedFYs.length === 0 ? 'Select' : selectedFYs.length <= 2 ? selectedFYs.map((f) => f.replace('FY ', '')).join(', ') : `${selectedFYs.length} selected`;
   const stmtLabel = selectedStmts.length === stmtTypes.length && stmtTypes.length > 0 ? 'All types' : selectedStmts.length === 0 ? 'None' : selectedStmts.length <= 2 ? selectedStmts.join(', ') : `${selectedStmts.length} selected`;
   const statusLabel = statusFilter.length === 2 ? 'All' : statusFilter.length === 0 ? 'None' : statusFilter.map((s) => s === 'ok' ? 'Has files' : 'Empty').join(', ');
 
-  /* ═══ Multi-select dropdown ═══ */
   const MultiDD = ({ open, items, checked, toggle, allChecked, toggleAll, allLabel, labelFn }: any) => (
     open ? (
       <div onClick={(e: any) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card-solid)', borderRadius: 'var(--r-sm)', border: '1px solid var(--input-border)', boxShadow: 'var(--shadow-float)', zIndex: 50, maxHeight: 240, overflowY: 'auto' }}>
@@ -283,7 +291,6 @@ export default function ScanExport() {
     ) : null
   );
 
-  /* ═══ Chip renderer ═══ */
   const renderChip = (count: number, label: string, title: string) => (
     <span title={title} style={{
       flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2,
@@ -310,13 +317,12 @@ export default function ScanExport() {
         </div>
       )}
 
-      {/* Filters — always visible */}
+      {/* Filters */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header"><span className="card-title">Filters</span></div>
         <div className="card-body">
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            {/* Clients */}
-            <div className="input-group" style={{ flex: 1, minWidth: 130, position: 'relative' }}>
+            <div className="input-group" style={{ flex: 1, minWidth: 120, position: 'relative' }}>
               <label className="input-label">Clients</label>
               <div className="select-field" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => { e.stopPropagation(); closeAllDD(); setClientDDOpen(!clientDDOpen); }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selectedEntities.length === 0 ? 'var(--ink-3)' : 'var(--ink)' }}>{clientLabel}</span>
@@ -324,8 +330,15 @@ export default function ScanExport() {
               <MultiDD open={clientDDOpen} allChecked={selectedEntities.length === entities.length && entities.length > 0} toggleAll={() => setSelectedEntities(selectedEntities.length === entities.length ? [] : [...entities])} allLabel="All clients" items={entities} checked={(e: string) => selectedEntities.includes(e)} toggle={(e: string) => setSelectedEntities(tog(selectedEntities, e))} />
             </div>
 
-            {/* FY multi-select */}
-            <div className="input-group" style={{ flex: 1, minWidth: 130, position: 'relative' }}>
+            <div className="input-group" style={{ flex: 1, minWidth: 120, position: 'relative' }}>
+              <label className="input-label">Accounts</label>
+              <div className="select-field" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => { e.stopPropagation(); closeAllDD(); setAccountDDOpen(!accountDDOpen); }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selectedAccounts.length === 0 ? 'var(--ink-3)' : 'var(--ink)' }}>{accountLabel}</span>
+              </div>
+              <MultiDD open={accountDDOpen} allChecked={selectedAccounts.length === accountList.length && accountList.length > 0} toggleAll={() => setSelectedAccounts(selectedAccounts.length === accountList.length ? [] : [...accountList])} allLabel="All accounts" items={accountList} checked={(a: string) => selectedAccounts.includes(a)} toggle={(a: string) => setSelectedAccounts(tog(selectedAccounts, a))} />
+            </div>
+
+            <div className="input-group" style={{ flex: 1, minWidth: 120, position: 'relative' }}>
               <label className="input-label">Financial Year</label>
               <div className="select-field" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => { e.stopPropagation(); closeAllDD(); setFyDDOpen(!fyDDOpen); }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fyLabel}</span>
@@ -333,9 +346,8 @@ export default function ScanExport() {
               <MultiDD open={fyDDOpen} allChecked={selectedFYs.length === fyList.length && fyList.length > 0} toggleAll={() => setSelectedFYs(selectedFYs.length === fyList.length ? [] : [...fyList])} allLabel="All FYs" items={fyList} checked={(f: string) => selectedFYs.includes(f)} toggle={(f: string) => setSelectedFYs(tog(selectedFYs, f))} labelFn={(f: string) => f.replace('FY ', '')} />
             </div>
 
-            {/* Statement Type — from folder structure */}
             {stmtTypes.length > 0 && (
-              <div className="input-group" style={{ flex: 1, minWidth: 130, position: 'relative' }}>
+              <div className="input-group" style={{ flex: 1, minWidth: 120, position: 'relative' }}>
                 <label className="input-label">Statement Type</label>
                 <div className="select-field" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => { e.stopPropagation(); closeAllDD(); setStmtDDOpen(!stmtDDOpen); }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stmtLabel}</span>
@@ -344,8 +356,7 @@ export default function ScanExport() {
               </div>
             )}
 
-            {/* Status */}
-            <div className="input-group" style={{ flex: 1, minWidth: 110, position: 'relative' }}>
+            <div className="input-group" style={{ flex: 1, minWidth: 100, position: 'relative' }}>
               <label className="input-label">Status</label>
               <div className="select-field" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => { e.stopPropagation(); closeAllDD(); setStatusDDOpen(!statusDDOpen); }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}>{statusLabel}</span>
@@ -353,7 +364,7 @@ export default function ScanExport() {
               <MultiDD open={statusDDOpen} allChecked={statusFilter.length === 2} toggleAll={() => setStatusFilter(statusFilter.length === 2 ? [] : ['empty', 'ok'])} allLabel="All" items={['empty', 'ok']} checked={(s: string) => statusFilter.includes(s)} toggle={(s: string) => setStatusFilter(tog(statusFilter, s))} labelFn={(s: string) => s === 'ok' ? 'Has files' : 'Empty'} />
             </div>
 
-            <button className="btn btn-primary" onClick={handleScan} disabled={selectedEntities.length === 0 || selectedFYs.length === 0 || loading} style={{ minWidth: 100 }}>
+            <button className="btn btn-primary" onClick={handleScan} disabled={selectedEntities.length === 0 || selectedAccounts.length === 0 || selectedFYs.length === 0 || loading} style={{ minWidth: 100 }}>
               {loading ? <><span className="btn-spinner" /> Scanning</> : <><IconEye /> Scan</>}
             </button>
           </div>
@@ -363,7 +374,6 @@ export default function ScanExport() {
       {/* Results */}
       {hasResults && (
         <div className="card">
-          {/* Stats */}
           <div style={{ padding: '20px 28px' }}>
             <div className="stats-grid">
               {[
@@ -389,54 +399,54 @@ export default function ScanExport() {
             </div>
           </div>
 
-          {/* Chip grid — scrollable */}
           <div className="scroll-table" style={{ maxHeight: 480, overflowY: 'auto' }}>
-              {displayRows.length === 0 ? (
-                <div style={{ padding: '40px 28px', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>No results match the current filters</div>
-              ) : (
-                <table>
-                  <thead><tr>
-                    <th style={{ width: '12%' }}>Client</th>
-                    <th style={{ width: '10%' }}>FY</th>
-                    <th style={{ width: '18%' }}>Statement type</th>
-                    <th style={{ textAlign: 'center', padding: '0 10px 14px' }}>Months</th>
-                  </tr></thead>
-                  <tbody>
-                    {displayRows.map((row, idx) => {
-                      const showSep = idx > 0 && getClientGroup(idx) !== getClientGroup(idx - 1);
-                      const mks = fyMonthKeys(row.fy);
-                      return (
-                        <Fragment key={`${row.client}-${row.fy}-${row.statementType}-${row.isFyLevel}`}>
-                          {showSep && <tr style={{ background: 'none' }}><td colSpan={4} style={{ padding: '6px 0', height: 'auto', borderBottom: 'none' }}><div style={{ height: 1, background: 'var(--divider)' }} /></td></tr>}
-                          <tr>
-                            <td style={{ color: 'var(--brand)', fontSize: 12, fontWeight: 500 }}>{row.client}</td>
-                            <td style={{ color: 'var(--ink-2)', fontSize: 12, whiteSpace: 'nowrap' }}>{row.fy}</td>
-                            <td style={{ fontWeight: 500, fontSize: 12.5 }}>
-                              {row.statementType === DASH ? `${DASH} (FY level)` : row.statementType}
-                            </td>
-                            <td style={{ padding: '0 10px' }}>
-                              <div style={{ display: 'flex', gap: 3 }}>
-                                {row.isFyLevel ? (
-                                  <span title={`FY level — ${row.total} files`}
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, minWidth: 36, height: 24, padding: '0 6px', borderRadius: 4, fontSize: 9, fontWeight: 600,
-                                      background: row.total > 0 ? 'rgba(29,158,117,0.1)' : 'rgba(226,92,92,0.07)', color: row.total > 0 ? '#1D9E75' : '#E25C5C',
-                                    }}>FY {row.total}</span>
-                                ) : mks.map((mk, mi) => {
-                                  const count = row.months[mk] || 0;
-                                  return <Fragment key={mk}>{renderChip(count, MONTH_NAMES[mi], `${MONTH_NAMES[mi]} — ${count} files`)}</Fragment>;
-                                })}
-                              </div>
-                            </td>
-                          </tr>
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            {displayRows.length === 0 ? (
+              <div style={{ padding: '40px 28px', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>No results match the current filters</div>
+            ) : (
+              <table>
+                <thead><tr>
+                  <th style={{ width: '11%' }}>Client</th>
+                  <th style={{ width: '11%' }}>Account</th>
+                  <th style={{ width: '8%' }}>FY</th>
+                  <th style={{ width: '16%' }}>Statement type</th>
+                  <th style={{ textAlign: 'center', padding: '0 10px 14px' }}>Months</th>
+                </tr></thead>
+                <tbody>
+                  {displayRows.map((row, idx) => {
+                    const showSep = idx > 0 && getClientGroup(idx) !== getClientGroup(idx - 1);
+                    const mks = fyMonthKeys(row.fy);
+                    return (
+                      <Fragment key={`${row.client}-${row.account}-${row.fy}-${row.statementType}-${row.isFyLevel}`}>
+                        {showSep && <tr style={{ background: 'none' }}><td colSpan={5} style={{ padding: '6px 0', height: 'auto', borderBottom: 'none' }}><div style={{ height: 1, background: 'var(--divider)' }} /></td></tr>}
+                        <tr>
+                          <td style={{ color: 'var(--brand)', fontSize: 12, fontWeight: 500 }}>{row.client}</td>
+                          <td style={{ color: 'var(--ink-2)', fontSize: 12 }}>{row.account}</td>
+                          <td style={{ color: 'var(--ink-2)', fontSize: 12, whiteSpace: 'nowrap' }}>{row.fy}</td>
+                          <td style={{ fontWeight: 500, fontSize: 12.5 }}>
+                            {row.statementType === DASH ? `${DASH} (FY level)` : row.statementType}
+                          </td>
+                          <td style={{ padding: '0 10px' }}>
+                            <div style={{ display: 'flex', gap: 3 }}>
+                              {row.isFyLevel ? (
+                                <span title={`FY level — ${row.total} files`}
+                                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, minWidth: 36, height: 24, padding: '0 6px', borderRadius: 4, fontSize: 9, fontWeight: 600,
+                                    background: row.total > 0 ? 'rgba(29,158,117,0.1)' : 'rgba(226,92,92,0.07)', color: row.total > 0 ? '#1D9E75' : '#E25C5C',
+                                  }}>FY {row.total}</span>
+                              ) : mks.map((mk, mi) => {
+                                const count = row.months[mk] || 0;
+                                return <Fragment key={mk}>{renderChip(count, MONTH_NAMES[mi], `${MONTH_NAMES[mi]} — ${count} files`)}</Fragment>;
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-          {/* Email section */}
           <div className="card-divider" />
           <div className="card-header"><span className="card-title">Send report</span></div>
           <div style={{ padding: '0 20px 20px', display: 'grid', gap: 14 }}>

@@ -324,6 +324,7 @@ pub fn parse_import(file_path: String) -> Result<ImportResult, String> {
         result.statement_types.push(StatementType {
             name: type_name.clone(),
             sub_folders: root_children,
+            monthly: false,
         });
     }
 

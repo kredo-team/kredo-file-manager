@@ -1,15 +1,8 @@
 // ── Financial Year Helpers ──
 
-export function generateFinancialYears(count: number = 10): string[] {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth(); // 0 = Jan
-  // FY starts April: if month >= April (3), current FY is currentYear-nextYear
-  const startYear = currentMonth >= 3 ? currentYear : currentYear - 1;
-
+export function generateFinancialYears(): string[] {
   const years: string[] = [];
-  for (let i = 2; i >= -count + 3; i--) {
-    const y = startYear + i;
+  for (let y = 2017; y <= 2031; y++) {
     const shortNext = String(y + 1).slice(-2);
     years.push(`FY ${y}-${shortNext}`);
   }

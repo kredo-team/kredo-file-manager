@@ -54,6 +54,8 @@ pub struct StatementType {
     pub name: String,
     #[serde(default)]
     pub sub_folders: Vec<FolderNode>,
+    #[serde(default)]
+    pub monthly: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
