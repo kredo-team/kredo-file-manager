@@ -41,6 +41,11 @@ echo.
 echo  Installing dependencies...
 call npm install
 
+echo  Syncing Rust crates...
+cd src-tauri
+cargo update
+cd ..
+
 echo.
 echo  Committing changes...
 git add .
